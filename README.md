@@ -1,4 +1,4 @@
-# E-commerce Auto-Dispute System
+# Scantok Auto-Dispute System
 
 Resolves "my package arrived damaged" claims automatically by cross-matching
 damage evidence from three handover points and applying a fixed liability
