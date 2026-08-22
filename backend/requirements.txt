@@ -1,0 +1,47 @@
+# backend/requirements.txt
+#
+# ---------------------------------------------------------------------------
+# GPU COMPATIBILITY MATRIX
+# ---------------------------------------------------------------------------
+#   RTX 5050 8GB Laptop (Blackwell, sm_120)  -> needs cu128  (Option A, default)
+#   RTX 4060 8GB        (Ada,       sm_89)   -> cu128 OK, cu118 OK
+#   RTX 3060 12GB       (Ampere,    sm_86)   -> cu128 OK, cu118 OK
+#   GTX 16xx / RTX 20xx (Turing,    sm_75)   -> cu128 OK, cu118 OK
+#   No GPU / unsupported driver              -> agent_vision.py auto-falls
+#                                               back to CPU, no crash
+#
+# Option A (cu128) is the default because it is the ONLY channel that carries
+# sm_120 kernels for the RTX 5050 while still shipping sm_75/80/86/90 for the
+# 30- and 40-series. cu118 tops out at sm_90 and would raise
+# "no kernel image is available for execution on the device" on a 5050.
+# Requires NVIDIA driver >= 570 (Windows) / >= 570 (Linux).
+#
+# Option B (cu118) is kept for older driver stacks that cannot move to CUDA 12.8;
+# it works on 20/30/40-series only. Swap the comment markers to use it.
+# ---------------------------------------------------------------------------
+
+# --- Option A: CUDA 12.8 (DEFAULT) — RTX 50/40/30/20 series ------------------
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.7.0+cu128
+torchvision==0.22.0+cu128
+
+# --- Option B: CUDA 11.8 — RTX 40/30/20 series, older drivers ----------------
+# --extra-index-url https://download.pytorch.org/whl/cu118
+# torch==2.3.1+cu118
+# torchvision==0.18.1+cu118
+
+# --- Option C: CPU only ------------------------------------------------------
+# --extra-index-url https://download.pytorch.org/whl/cpu
+# torch==2.7.0
+# torchvision==0.22.0
+
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+ultralytics==8.3.63
+# -headless: no Qt/GTK GUI bindings, meant for servers/containers. Still
+# needs libgl1 + libglib2.0-0 at the OS level (see Dockerfile) - the wheel
+# itself was built against them even without a display.
+opencv-python-headless==4.10.0.84
+pydantic==2.9.2
+numpy==1.26.4

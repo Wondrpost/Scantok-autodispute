@@ -1,0 +1,45 @@
+# Build context is the repository root (see docker/backend.Dockerfile).
+
+.env
+.env.*
+!.env.example
+
+.git/
+.gitignore
+.gitattributes
+.github/
+
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Superseded weights and training output - only backend/models/bestv3.pt ships.
+runs/
+wandb/
+datasets/
+earlier model/
+backend/models/best.pt
+backend/models/yolov8n.pt
+
+# Not needed by the backend image.
+frontend/
+docs/
+dummy_data/
+docker/
+docker-compose.yml
+*.md
+*.mp4
+*.mov
+
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db

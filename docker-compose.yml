@@ -1,0 +1,47 @@
+# Requires the NVIDIA Container Toolkit for GPU passthrough. On a CPU-only
+# host, delete the deploy block - agent_vision falls back to CPU on its own.
+#
+#   cp backend/.env.example backend/.env
+#   docker compose up --build
+
+services:
+  dispute-api:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: auto-dispute-backend:latest
+    container_name: dispute-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    volumes:
+      - ./dummy_data:/dummy_data:ro
+    environment:
+      DUMMY_DATA_DIR: /dummy_data
+      SELLER_VIDEO_NAME: seller_video.mp4
+      COURIER_PHOTO_NAME: courier_photo.jpg
+      YOLO_MODEL_PATH: /srv/models/bestv3.pt
+      YOLO_CONFIG_DIR: /home/appuser/.config/Ultralytics
+      YOLO_IMG_SIZE: "640"
+      YOLO_CONF_THRESHOLD: "0.35"
+      SAMPLE_FPS: "1.0"
+      MAX_SAMPLED_FRAMES: "90"
+      DAMAGE_MIN_HITS: "2"
+      MAX_UPLOAD_MB: "200"
+      MAX_CONCURRENT_DISPUTES: "1"
+      LOG_LEVEL: INFO
+      OPENCV_LOG_LEVEL: ERROR
+      OMP_NUM_THREADS: "4"
+    restart: unless-stopped
+    shm_size: "2gb"
+    ulimits:
+      memlock: -1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
