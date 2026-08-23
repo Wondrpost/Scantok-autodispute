@@ -3,10 +3,13 @@
 import pytest
 
 from app.agent_vision import (
+    DAMAGE_MIN_HITS,
+    DAMAGE_MIN_RATIO,
     STATUS_DAMAGED,
     STATUS_INVALID,
     STATUS_NOT_OBSERVED,
     STATUS_SAFE,
+    _is_damaged,
 )
 from app.main import (
     VERDICT_BUYER_FRAUD,
@@ -18,6 +21,33 @@ from app.main import (
     VERDICT_TAMPERING,
     resolve_verdict,
 )
+
+
+def test_damage_needs_both_floor_and_ratio():
+    """1 of 4 frames clears no bar; 6 of 15 clears both."""
+    assert _is_damaged(1, 4) is False        # ratio 0.25, and below the floor
+    assert _is_damaged(2, 15) is False       # meets floor, ratio only 0.13
+    assert _is_damaged(6, 15) is True        # floor met, ratio 0.40
+    assert _is_damaged(3, 90) is False       # sparse noise in a long clip
+
+
+def test_damage_verdict_is_scale_invariant():
+    """The same proportion decides the same way at any window length."""
+    for total in (10, 20, 60):
+        hits = int(total * (DAMAGE_MIN_RATIO + 0.1))
+        assert _is_damaged(hits, total) is True
+        assert _is_damaged(int(total * (DAMAGE_MIN_RATIO - 0.1)), total) is False
+
+
+def test_single_frame_photo_can_still_be_damaged():
+    """A still has one observation: ratio 1.0, and min_hits is passed as 1."""
+    assert _is_damaged(1, 1, min_hits=1) is True
+    assert _is_damaged(0, 1, min_hits=1) is False
+
+
+def test_damage_on_empty_window_is_never_true():
+    assert _is_damaged(0, 0) is False
+    assert _is_damaged(DAMAGE_MIN_HITS, 0) is False
 
 
 @pytest.mark.parametrize(

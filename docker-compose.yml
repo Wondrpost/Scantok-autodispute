@@ -25,10 +25,14 @@ services:
       YOLO_MODEL_PATH: /srv/models/bestv3.pt
       YOLO_CONFIG_DIR: /home/appuser/.config/Ultralytics
       YOLO_IMG_SIZE: "640"
-      YOLO_CONF_THRESHOLD: "0.35"
+      YOLO_CONF_THRESHOLD: "${YOLO_CONF_THRESHOLD:-0.35}"
       SAMPLE_FPS: "1.0"
       MAX_SAMPLED_FRAMES: "90"
-      DAMAGE_MIN_HITS: "2"
+      # Overridable from the shell for tuning runs, e.g.
+      #   DAMAGE_MIN_RATIO=0.2 docker compose up -d
+      DAMAGE_MIN_HITS: "${DAMAGE_MIN_HITS:-2}"
+      DAMAGE_MIN_RATIO: "${DAMAGE_MIN_RATIO:-0.30}"
+      PRE_OPEN_SAMPLE_FPS: "${PRE_OPEN_SAMPLE_FPS:-3.0}"
       MAX_UPLOAD_MB: "200"
       MAX_CONCURRENT_DISPUTES: "1"
       LOG_LEVEL: INFO

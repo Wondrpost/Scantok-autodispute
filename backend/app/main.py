@@ -14,7 +14,6 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -62,7 +61,7 @@ VERDICT_PRODUCT_ONLY = "Klaim Memerlukan Tinjauan Manual, Kemasan Utuh Namun Pro
 _ROLE_LABELS = {"seller": "penjual", "courier": "kurir", "buyer": "pembeli"}
 
 
-def _join_id(items: List[str]) -> str:
+def _join_id(items: list[str]) -> str:
     if not items:
         return ""
     if len(items) == 1:
@@ -76,7 +75,7 @@ def resolve_verdict(
     buyer_packaging: str,
     buyer_product: str = STATUS_NOT_OBSERVED,
     tampering_suspected: bool = False,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Chain-of-custody truth table; first damaged checkpoint carries liability.
 
     buyer_packaging is the pre-open exterior verdict, the only buyer signal
@@ -187,7 +186,7 @@ class MediaStatus(BaseModel):
     frames_analyzed: int
     damage_hits: int
     max_confidence: float
-    detected_labels: List[str] = []
+    detected_labels: list[str] = []
     method: str
 
 
@@ -197,7 +196,7 @@ class ProductAssessment(BaseModel):
     product_status: str = Field(..., description="'Safe', 'Damaged', or 'NotObserved'")
     product_damage_hits: int
     tampering_suspected: bool
-    open_event_second: Optional[float] = Field(
+    open_event_second: float | None = Field(
         None, description="Second the buyer began opening; null if never detected"
     )
     pre_open_frames: int
@@ -214,7 +213,7 @@ class DisputeResponse(BaseModel):
     requires_manual_review: bool
     liable_party: str
     reasoning: str
-    chain_of_custody: Dict[str, MediaStatus] = Field(
+    chain_of_custody: dict[str, MediaStatus] = Field(
         ..., description="Exterior-integrity comparison across the three handover points"
     )
     product_assessment: ProductAssessment
@@ -285,7 +284,10 @@ async def _persist_upload(upload: UploadFile) -> Path:
     if suffix not in ALLOWED_VIDEO_SUFFIXES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported video format '{suffix}'. Allowed: {sorted(ALLOWED_VIDEO_SUFFIXES)}",
+            detail=(
+                f"Unsupported video format '{suffix}'. "
+                f"Allowed: {sorted(ALLOWED_VIDEO_SUFFIXES)}"
+            ),
         )
 
     handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
@@ -347,7 +349,7 @@ async def health() -> HealthResponse:
 async def analyze_dispute(
     buyer_video: UploadFile = File(..., description="Unboxing video uploaded by the buyer"),
     complaint: str = Form(..., min_length=1, max_length=2000),
-    order_id: Optional[str] = Form(None),
+    order_id: str | None = Form(None),
 ) -> DisputeResponse:
     loop = asyncio.get_running_loop()
     started = loop.time()
@@ -368,7 +370,9 @@ async def analyze_dispute(
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             except Exception as exc:
                 logger.exception("Vision pipeline failed")
-                raise HTTPException(status_code=500, detail=f"Vision pipeline failed: {exc}") from exc
+                raise HTTPException(
+                    status_code=500, detail=f"Vision pipeline failed: {exc}"
+                ) from exc
     finally:
         buyer_path.unlink(missing_ok=True)
 

@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Sequence
+from typing import Any
 
 import cv2
 import numpy as np
@@ -37,7 +38,17 @@ CONF_THRESHOLD = float(os.getenv("YOLO_CONF_THRESHOLD", "0.35"))
 SAMPLE_FPS = float(os.getenv("SAMPLE_FPS", "1.0"))
 MAX_SAMPLED_FRAMES = int(os.getenv("MAX_SAMPLED_FRAMES", "90"))
 MAX_DECODE_WIDTH = int(os.getenv("MAX_DECODE_WIDTH", "1280"))
+
+# A verdict needs both an absolute floor and a proportion of flagged frames.
+# The floor alone misfires on short windows (1 of 4 frames is not evidence of
+# damage); the ratio alone misfires on single-frame stills.
 DAMAGE_MIN_HITS = int(os.getenv("DAMAGE_MIN_HITS", "2"))
+DAMAGE_MIN_RATIO = float(os.getenv("DAMAGE_MIN_RATIO", "0.30"))
+
+# The pre-open window is typically a few seconds out of a minutes-long clip,
+# yet it is the only part that can prove transit damage. Sample it densely on
+# a second pass rather than paying for the whole video at this rate.
+PRE_OPEN_SAMPLE_FPS = float(os.getenv("PRE_OPEN_SAMPLE_FPS", "3.0"))
 
 OPEN_CONTACT_RATIO = float(os.getenv("OPEN_CONTACT_RATIO", "0.35"))
 OPEN_MOTION_RATIO = float(os.getenv("OPEN_MOTION_RATIO", "0.18"))
@@ -90,10 +101,10 @@ class MediaAnalysis:
     frames_analyzed: int
     damage_hits: int
     max_confidence: float
-    detected_labels: List[str] = field(default_factory=list)
+    detected_labels: list[str] = field(default_factory=list)
     method: str = "yolo"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "media_type": self.media_type,
@@ -126,7 +137,7 @@ class FrameRecord:
     opening_artifact: bool
     product_damage: bool
     max_conf: float
-    labels: List[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -145,10 +156,10 @@ class UnboxingAnalysis:
     post_open_frames: int
     frames_analyzed: int
     max_confidence: float
-    detected_labels: List[str] = field(default_factory=list)
+    detected_labels: list[str] = field(default_factory=list)
     method: str = "phase-aware"
 
-    def to_chain_point(self) -> Dict[str, Any]:
+    def to_chain_point(self) -> dict[str, Any]:
         """MediaStatus-shaped dict for chain-of-custody comparison.
 
         Reports packaging_status, not product_status: the seller's packing
@@ -166,7 +177,7 @@ class UnboxingAnalysis:
             "method": self.method,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "media_type": self.media_type,
@@ -260,6 +271,17 @@ def _resolve_batch_size(default: int) -> int:
 DEVICE = _resolve_device()
 USE_HALF = DEVICE.startswith("cuda") and os.getenv("YOLO_HALF", "true").lower() == "true"
 BATCH_SIZE = _resolve_batch_size(BATCH_SIZE)
+
+
+def _is_damaged(hits: int, total: int, min_hits: int = DAMAGE_MIN_HITS) -> bool:
+    """Damage verdict: an absolute floor AND a proportion of flagged frames.
+
+    Scale-invariant, so a 5-frame pre-open window and a 90-frame clip are held
+    to the same evidentiary standard rather than the same raw count.
+    """
+    if total <= 0:
+        return False
+    return hits >= min_hits and (hits / total) >= DAMAGE_MIN_RATIO
 
 
 def _is_damage_label(label: str) -> bool:
@@ -381,11 +403,13 @@ def iter_video_frames_ts(
     path: Path,
     sample_fps: float = SAMPLE_FPS,
     max_frames: int = MAX_SAMPLED_FRAMES,
+    until_sec: float | None = None,
 ) -> Iterator[tuple[float, np.ndarray]]:
     """Yield (timestamp_seconds, frame) for sampled frames only.
 
     grab() advances the demuxer without decoding, so only frames on a sampling
-    boundary are ever turned into arrays.
+    boundary are ever turned into arrays. until_sec stops the scan early, used
+    by the dense pre-open rescan.
     """
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
@@ -401,22 +425,25 @@ def iter_video_frames_ts(
         while taken < max_frames:
             if not capture.grab():
                 break
+            ts = index / src_fps
+            if until_sec is not None and ts > until_sec:
+                break
             if index % step == 0:
                 ok, frame = capture.retrieve()
                 if not ok or frame is None:
                     break
-                yield index / src_fps, _downscale(frame)
+                yield ts, _downscale(frame)
                 taken += 1
             index += 1
 
-        if taken == 0:
+        if taken == 0 and until_sec is None:
             raise MediaAnalysisError(f"No decodable frames in video: {path.name}")
     finally:
         capture.release()
 
 
-def _batched(items: Iterable[Any], size: int) -> Iterator[List[Any]]:
-    batch: List[Any] = []
+def _batched(items: Iterable[Any], size: int) -> Iterator[list[Any]]:
+    batch: list[Any] = []
     for item in items:
         batch.append(item)
         if len(batch) >= size:
@@ -442,7 +469,7 @@ def _edge_density(frame: np.ndarray, box: Sequence[float] | None = None) -> floa
     return float(np.count_nonzero(edges)) / float(edges.size)
 
 
-def _predict(frames: List[np.ndarray]):
+def _predict(frames: list[np.ndarray]):
     """Forward pass, degrading to single-frame inference on CUDA OOM."""
     model = get_model()
     with _INFERENCE_LOCK:
@@ -475,7 +502,7 @@ def _predict(frames: List[np.ndarray]):
             return results
 
 
-def _extract_detections(result) -> List[Detection]:
+def _extract_detections(result) -> list[Detection]:
     boxes = result.boxes
     if boxes is None or len(boxes) == 0:
         return []
@@ -483,21 +510,21 @@ def _extract_detections(result) -> List[Detection]:
     return [
         Detection(str(names.get(cls_id, cls_id)), float(conf), tuple(xyxy))
         for cls_id, conf, xyxy in zip(
-            boxes.cls.int().tolist(), boxes.conf.tolist(), boxes.xyxy.tolist()
+            boxes.cls.int().tolist(), boxes.conf.tolist(), boxes.xyxy.tolist(), strict=True
         )
     ]
 
 
-def _score_batch(frames: List[np.ndarray]) -> tuple[int, float, List[str], str]:
+def _score_batch(frames: list[np.ndarray]) -> tuple[int, float, list[str], str]:
     """Return (damaged_frame_count, max_confidence, labels, method)."""
     results = _predict(frames)
 
     hits = 0
     max_conf = 0.0
-    labels: List[str] = []
+    labels: list[str] = []
     method = "yolo"
 
-    for frame, result in zip(frames, results):
+    for frame, result in zip(frames, results, strict=True):
         frame_damaged = False
         best_box = None
         best_conf = 0.0
@@ -531,7 +558,7 @@ def _finalize(
     frames_analyzed: int,
     hits: int,
     max_conf: float,
-    labels: List[str],
+    labels: list[str],
     method: str,
     min_hits: int,
 ) -> MediaAnalysis:
@@ -540,7 +567,7 @@ def _finalize(
     package_seen = any(_is_package_label(label) for label in labels)
     if _model_has_package_classes and not package_seen:
         status = STATUS_INVALID
-    elif hits >= min_hits:
+    elif _is_damaged(hits, frames_analyzed, min_hits):
         status = STATUS_DAMAGED
     else:
         status = STATUS_SAFE
@@ -570,7 +597,7 @@ def analyze_video(path: str | Path) -> MediaAnalysis:
 
     total_hits = total_frames = 0
     max_conf = 0.0
-    labels: List[str] = []
+    labels: list[str] = []
     method = "yolo"
 
     try:
@@ -633,7 +660,7 @@ def _overlap_ratio(inner: Sequence[float], outer: Sequence[float]) -> float:
     return inter / area
 
 
-def _intervention_contact(dets: List[Detection]) -> float:
+def _intervention_contact(dets: list[Detection]) -> float:
     """Highest hand/tool-on-package overlap in one frame."""
     packages = [d for d in dets if _is_package_label(d.label)]
     tools = [d for d in dets if _is_intervention_label(d.label)]
@@ -654,7 +681,7 @@ def _motion_ratio(prev_gray: np.ndarray | None, cur_gray: np.ndarray) -> float:
     return float(np.count_nonzero(diff > 25)) / float(diff.size)
 
 
-def _classify_frame(dets: List[Detection], ts: float) -> FrameRecord:
+def _classify_frame(dets: list[Detection], ts: float) -> FrameRecord:
     record = FrameRecord(
         ts=ts,
         has_package=False,
@@ -684,6 +711,34 @@ def _classify_frame(dets: List[Detection], ts: float) -> FrameRecord:
     return record
 
 
+def _rescan_pre_open(path: Path, cutoff: float) -> list[FrameRecord]:
+    """Re-sample [0, cutoff] at PRE_OPEN_SAMPLE_FPS for a denser verdict.
+
+    Only decodes the opening seconds, so the extra pass is cheap. Returns an
+    empty list if the window is unreadable, leaving the first pass in place.
+    """
+    dense: list[FrameRecord] = []
+    try:
+        frame_budget = max(1, int(cutoff * PRE_OPEN_SAMPLE_FPS) + 1)
+        stream = iter_video_frames_ts(
+            path, PRE_OPEN_SAMPLE_FPS, frame_budget, until_sec=cutoff
+        )
+        for batch in _batched(stream, BATCH_SIZE):
+            stamps = [ts for ts, _ in batch]
+            frames = [frame for _, frame in batch]
+            results = _predict(frames)
+            for ts, result in zip(stamps, results, strict=True):
+                dense.append(_classify_frame(_extract_detections(result), ts))
+            del results
+            frames.clear()
+    except MediaAnalysisError:
+        logger.warning("Dense pre-open rescan failed for %s - keeping 1 fps pass", path.name)
+        return []
+    finally:
+        release_gpu_cache()
+    return dense
+
+
 def analyze_unboxing_video(path: str | Path) -> UnboxingAnalysis:
     """Phase-aware analysis of a buyer's unboxing video.
 
@@ -698,7 +753,7 @@ def analyze_unboxing_video(path: str | Path) -> UnboxingAnalysis:
     use_motion_fallback = not _model_has_intervention_classes
     method = "phase-aware-motion-fallback" if use_motion_fallback else "phase-aware"
 
-    records: List[FrameRecord] = []
+    records: list[FrameRecord] = []
     open_ts: float | None = None
     consecutive = 0
     prev_gray: np.ndarray | None = None
@@ -709,7 +764,7 @@ def analyze_unboxing_video(path: str | Path) -> UnboxingAnalysis:
             frames = [frame for _, frame in batch]
             results = _predict(frames)
 
-            for ts, frame, result in zip(stamps, frames, results):
+            for ts, frame, result in zip(stamps, frames, results, strict=True):
                 dets = _extract_detections(result)
                 records.append(_classify_frame(dets, ts))
 
@@ -741,12 +796,22 @@ def analyze_unboxing_video(path: str | Path) -> UnboxingAnalysis:
     pre = [r for r in records if r.ts <= cutoff]
     post = [r for r in records if open_ts is not None and r.ts >= open_ts]
 
+    # Second pass over the pre-open window only. It is usually a few seconds
+    # of a minutes-long clip but carries the entire transit-damage verdict, so
+    # a handful of frames there is too thin a basis to assign liability.
+    if PRE_OPEN_SAMPLE_FPS > SAMPLE_FPS and cutoff not in (float("inf"), 0.0):
+        dense = _rescan_pre_open(path, cutoff)
+        if len(dense) > len(pre):
+            records = [r for r in records if r.ts > cutoff] + dense
+            pre = dense
+            method += "+dense-pre"
+
     pre_with_package = [r for r in pre if r.has_package]
     packaging_hits = sum(1 for r in pre_with_package if r.transit_damage)
 
     if _model_has_package_classes and len(pre_with_package) < MIN_PRE_FRAMES:
         packaging_status = STATUS_INVALID
-    elif packaging_hits >= DAMAGE_MIN_HITS:
+    elif _is_damaged(packaging_hits, len(pre_with_package)):
         packaging_status = STATUS_DAMAGED
     else:
         packaging_status = STATUS_SAFE
@@ -762,7 +827,7 @@ def analyze_unboxing_video(path: str | Path) -> UnboxingAnalysis:
 
     if not post_with_product:
         product_status = STATUS_NOT_OBSERVED
-    elif product_hits >= DAMAGE_MIN_HITS:
+    elif _is_damaged(product_hits, len(post_with_product)):
         product_status = STATUS_DAMAGED
     else:
         product_status = STATUS_SAFE
