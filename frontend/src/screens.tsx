@@ -427,7 +427,13 @@ export function ResultView({
       <div className="dock">
         {copy.showAppeal ? (
           <div style={{ display: "grid", gap: 10 }}>
-            <button className="btn btn-primary">Ajukan Banding</button>
+            {/* Left visible but inert: the appeal route is part of the product
+                design, while the endpoint behind it is out of MVP scope.
+                Disabling states that plainly instead of faking a submission. */}
+            <button className="btn btn-primary" disabled>
+              Ajukan Banding
+            </button>
+            <p className="dock-note">Peninjauan manual belum tersedia di versi MVP ini</p>
             <button className="btn btn-ghost" onClick={onRestart}>
               Selesai
             </button>

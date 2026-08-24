@@ -34,16 +34,22 @@ export const VERDICT_COPY: Record<Verdict, VerdictCopy> = {
       "Paket aman saat diserahkan penjual, namun sudah rusak saat diterima kurir. Tanggung jawab ada pada pihak kurir.",
     showAppeal: false,
   },
+  // Fires only when the buyer's own pre-open footage shows damage that the
+  // seller and courier checkpoints did not. The package was therefore seen
+  // clearly - saying otherwise would describe the Invalid case instead.
   "Klaim Ditolak, Manipulasi Pembeli": {
     group: "rejected",
     reasoning:
-      "Paket tercatat aman hingga sampai ke tanganmu, namun video unboxing yang dikirim tidak menunjukkan kondisi asli paket secara meyakinkan.",
+      "Kemasan tercatat dalam kondisi baik saat dikemas penjual dan saat diserahkan kurir, namun sudah rusak pada video kamu sebelum paket dibuka. Kerusakan terjadi setelah paket diterima.",
     showAppeal: true,
   },
+  // Deliberately silent about the product: this verdict is reached from the
+  // exterior chain alone, and asserting the product is fine would contradict
+  // a NotObserved product_status rendered directly below it.
   "Klaim Ditolak, Tidak Ditemukan Kerusakan": {
     group: "rejected",
     reasoning:
-      "Ketiga video menunjukkan paket dan produk dalam kondisi baik di sepanjang perjalanan. Tidak ditemukan bukti kerusakan.",
+      "Kemasan paket terlihat dalam kondisi baik di ketiga titik pemeriksaan, sejak dikemas penjual sampai diterima. Tidak ditemukan bukti kerusakan pengiriman.",
     showAppeal: true,
   },
   "Klaim Memerlukan Tinjauan Manual, Bukti Tidak Valid": {
