@@ -16,29 +16,69 @@ box, so cutting tape is never scored as transit damage.
 
 ## Stack
 
-FastAPI · Ultralytics YOLOv8 · OpenCV · Docker
+**Backend** FastAPI · Ultralytics YOLOv8 · OpenCV · Docker
+**Frontend** React · Vite · TypeScript
 
-## Quick start
+## Requirements
+
+- Docker Desktop (with the NVIDIA Container Toolkit for GPU; CPU also works)
+- Node.js 18+ for the frontend
+- No API keys, no cloud account, no dataset download — the fine-tuned weights
+  (`backend/models/bestv3.pt`) and the seller/courier sample evidence are both
+  committed, so a fresh clone runs as-is.
+
+## Run it
+
+Two terminals.
+
+**1. Backend**
 
 ```bash
-cp backend/.env.example backend/.env
+cp backend/.env.example backend/.env      # optional; defaults work as-is
 docker compose up --build
 ```
 
-Then open http://localhost:8000/docs.
+First build downloads the CUDA PyTorch wheels and takes several minutes;
+later starts take about 20 seconds. Wait for:
 
-Without Docker:
-
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+```
+Device: cuda:0 | batch size: 4
+Model warmed up
+Uvicorn running on http://0.0.0.0:8000
 ```
 
-`dummy_data/` must contain `seller_video.mp4` and `courier_photo.jpg` before
-the endpoint will run — it stands in for the object storage and logistics API
-of the real system. Check `GET /api/health` to confirm both are visible.
+On a machine without a GPU, delete the `deploy:` block in `docker-compose.yml`
+first — the service then logs `No CUDA device visible - running on CPU` and
+works unchanged, just slower.
+
+Confirm it is up:
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+Both `seller_video_present` and `courier_photo_present` must be `true`.
+
+**2. Frontend**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173**, write a complaint, pick any video file, and
+submit. Requests are proxied to the backend, so no CORS setup is needed.
+
+The backend alone can also be driven from its Swagger UI at
+http://localhost:8000/docs.
+
+## Sample evidence
+
+`dummy_data/` holds the seller packing video and courier handover photo that
+checkpoints 1 and 2 are read from — it stands in for the object storage and
+logistics API of the real system. Both files are committed so the service runs
+out of the box. Only the buyer's unboxing video is uploaded at request time.
 
 ## API
 
@@ -57,20 +97,36 @@ for the full response contract.
 ## Layout
 
 ```
-backend/     FastAPI service, YOLO weights, tests
-frontend/    placeholder for the web client
-docker/      Dockerfile and build context notes
-dummy_data/  seller/courier evidence (contents gitignored)
-docs/        architecture notes
+backend/app/       FastAPI service and the vision agent
+backend/models/    bestv3.pt — fine-tuned YOLOv8 damage weights
+backend/tests/     truth-table unit tests
+frontend/src/      React claim UI
+docker/            Dockerfile and build notes
+dummy_data/        seller and courier sample evidence
+docs/              architecture notes
 ```
 
 ## Tests
 
 ```bash
-cd backend && pytest
+cd backend && pytest        # 18 tests, no GPU or media needed
+cd frontend && npm run build
 ```
 
-The truth-table suite runs without a GPU, a model, or media files.
+## Current limitations
+
+Stated plainly, because the verdict logic depends on them:
+
+- `bestv3.pt` has two classes (`package`, `Damaged`). It cannot see the inner
+  product, so `product_status` always returns `NotObserved` and
+  `tampering_suspected` always returns `false`. Both code paths are complete
+  and activate as soon as weights with those classes are supplied.
+- `T_open` (the moment the buyer starts opening the box) falls back to
+  frame-motion detection, since the model has no `hand`/`tool` class. The
+  precise contact-based path is implemented and switches on automatically.
+- `DAMAGE_MIN_RATIO` (0.30) is a reasoned starting point, not a value
+  calibrated against labelled packages.
+- The appeal button in the UI has no endpoint behind it yet.
 
 ## GPU notes
 

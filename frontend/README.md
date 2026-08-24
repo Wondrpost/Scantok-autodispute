@@ -16,7 +16,7 @@ Base URL in local dev: `http://localhost:8000`
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `buyer_video` | file | yes | mp4/mov/avi/mkv/webm/m4v, max 200 MB |
+| `buyer_video` | file | yes | mp4/mov/avi/mkv/webm/m4v, max 2 GB |
 | `complaint` | string | yes | 1–2000 chars |
 | `order_id` | string | no | free-form reference |
 
