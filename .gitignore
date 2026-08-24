@@ -53,15 +53,20 @@ earlier model/
 *.ipynb_checkpoints/
 
 # ---------------------------------------------------------------------------
-# Evidence media (large, and often contains real customer footage)
+# Evidence media
 # ---------------------------------------------------------------------------
-dummy_data/*
-!dummy_data/.gitkeep
-!dummy_data/README.md
+# Media is excluded by default, but the two seller/courier samples ARE
+# committed: without them a fresh clone returns HTTP 424 and the service
+# cannot be run at all.
 *.mp4
 *.mov
 *.avi
 *.mkv
+dummy_data/*
+!dummy_data/.gitkeep
+!dummy_data/README.md
+!dummy_data/seller_video.mp4
+!dummy_data/courier_photo.jpg
 uploads/
 tmp/
 
@@ -100,3 +105,6 @@ desktop.ini
 .claude/
 *.log
 logs/
+
+# Build cache
+frontend/tsconfig.tsbuildinfo
