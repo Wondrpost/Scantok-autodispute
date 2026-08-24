@@ -33,7 +33,9 @@ services:
       DAMAGE_MIN_HITS: "${DAMAGE_MIN_HITS:-2}"
       DAMAGE_MIN_RATIO: "${DAMAGE_MIN_RATIO:-0.30}"
       PRE_OPEN_SAMPLE_FPS: "${PRE_OPEN_SAMPLE_FPS:-3.0}"
-      MAX_UPLOAD_MB: "200"
+      # Streamed to disk in 1 MiB chunks, so size costs disk, not RAM. Raw 4K
+      # unboxing clips routinely exceed 1 GB.
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-2000}"
       MAX_CONCURRENT_DISPUTES: "1"
       LOG_LEVEL: INFO
       OPENCV_LOG_LEVEL: ERROR
